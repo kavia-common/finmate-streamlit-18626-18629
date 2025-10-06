@@ -1,0 +1,1 @@
+Detected references to reportlab/weasyprint. If PDF generation is required, add reportlab or weasyprint to requirements.txt with versions.
