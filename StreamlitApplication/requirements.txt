@@ -1,2 +1,3 @@
-streamlit
-reportlab
+# Core app dependencies pinned to compatible ranges
+streamlit>=1.30.0,<2.0
+reportlab>=4.0.0,<5.0
