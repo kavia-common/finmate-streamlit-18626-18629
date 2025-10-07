@@ -1,0 +1,3 @@
+# This file exists to support CI environments that install from the repository root.
+# It delegates to the application-specific requirements.
+-r app/requirements.txt
