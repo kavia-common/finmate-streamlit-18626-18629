@@ -1,25 +1,41 @@
 # FinMate — Streamlit Personal Finance Assistant
 
-FinMate analyzes user inputs (income, city, goals) and provides personalized recommendations, with options to save sessions and export PDF reports.
+FinMate is a monolithic Streamlit app to help you plan and track your personal finances. Input your income, city, expenses, risk profile, and goals; analyze budgets and projections; get recommendations; and export polished PDF reports. All data is stored locally (offline).
 
-## Features
-- Interactive UI for inputs
-- Financial analysis and smart recommendations
-- Local JSON persistence for sessions
-- PDF report generation
+## Key Features
+- Multi-page navigation via sidebar:
+  - Dashboard: KPIs, quick actions, progress overview
+  - Inputs: Profile, city, income, expense categories (editable table)
+  - Goals: Create/track goals with current/target amounts and target dates
+  - Analytics: KPIs, budget breakdown, cost-of-living adjusted guidance, retirement projection, recommendations, and charts
+  - Reports: View saved analysis snapshots and generate PDF reports
+  - Settings: Preferences (currency, EF months, real return), data export/import, data reset
+- Local JSON data with schema versioning and simple migration
+- Charts (Altair) for cashflow, category spending, and projections
+- PDF reports (ReportLab) with metrics, allocations, and recommendations
+- Works completely offline; no external APIs required
 
 ## Getting Started
-1. Create and activate a virtual environment (optional but recommended).
+1. (Optional) Create and activate a virtual environment.
 2. Install dependencies:
    pip install -r app/requirements.txt
 3. Run the app:
    streamlit run app/app.py
+4. Open the sidebar to navigate among pages.
 
 ## Environment Variables
-- REPORT_AUTHOR: Optional. Sets the author metadata for generated PDFs.
-
-You can set these using a .env (depending on your environment setup) or export them before running.
+- REPORT_AUTHOR (optional): Sets author metadata for generated PDFs.
 
 ## Data Storage
-- Local JSON at app/data/sessions.json
-- PDF reports saved in app/reports/
+- Local JSON state: app/data/state.json
+- Exports: timestamped JSON files in app/data/
+- PDF reports: app/reports/
+
+Note: app/data/.gitignore prevents committing your local data.
+
+## Acceptance Criteria Coverage
+- Sidebar pages: Dashboard, Inputs, Goals, Analytics, Reports, Settings
+- Persistent JSON across reloads with schema version
+- Analytics with charts and KPIs, recommendations updated by input
+- PDF report generation including allocations and recommendations
+- Offline functionality with seeded defaults

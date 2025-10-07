@@ -56,7 +56,7 @@ def generate_pdf_report(session_name: str, user_name: str, city: str, income: fl
     c.drawString(inch, y, "Allocations")
     y -= 0.2 * inch
     c.setFont("Helvetica", 10)
-    for k, v in analysis["allocations"].items():
+    for k, v in analysis.get("allocations", {}).items():
         c.drawString(inch, y, f"{k}: ${v:,.2f}")
         y -= 0.18 * inch
         if y < inch:
@@ -69,7 +69,7 @@ def generate_pdf_report(session_name: str, user_name: str, city: str, income: fl
     c.drawString(inch, y, "Recommendations")
     y -= 0.2 * inch
     c.setFont("Helvetica", 10)
-    for rec in analysis["recommendations"]:
+    for rec in analysis.get("recommendations", []):
         for line in wrap_text(rec, max_chars=90):
             c.drawString(inch, y, f"- {line}")
             y -= 0.18 * inch

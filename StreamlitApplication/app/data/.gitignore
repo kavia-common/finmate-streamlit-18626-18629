@@ -1,2 +1,3 @@
+# Ignore user data files
 *.json
-!.gitignore
+*.tmp
