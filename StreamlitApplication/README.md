@@ -19,9 +19,11 @@ FinMate is a monolithic Streamlit app to help you plan and track your personal f
 1. (Optional) Create and activate a virtual environment.
 2. Install dependencies:
    pip install -r app/requirements.txt
-3. Run the app:
-   streamlit run app/app.py
-4. Open the sidebar to navigate among pages.
+3. Run the app (binds to 0.0.0.0:3000 by default):
+   ./start.sh
+   # or equivalently:
+   # STREAMLIT_PORT=3000 streamlit run app/app.py --server.address=0.0.0.0 --server.port=3000 --server.headless=true
+4. Open the app in your browser at http://localhost:3000 and use the sidebar to navigate among pages.
 
 ## Environment Variables
 - REPORT_AUTHOR (optional): Sets author metadata for generated PDFs.

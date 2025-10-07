@@ -2,11 +2,14 @@ import io
 import json
 from pathlib import Path
 from typing import Dict, Tuple
+import os
 
 from .models import AppState, SCHEMA_VERSION
 
-DATA_DIR = Path("data")
-REPORTS_DIR = Path("reports")
+# Resolve base directory to the app/ folder regardless of current working directory
+BASE_DIR = Path(os.path.dirname(os.path.dirname(__file__))).resolve()
+DATA_DIR = BASE_DIR / "data"
+REPORTS_DIR = BASE_DIR / "reports"
 STATE_FILE = DATA_DIR / "state.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

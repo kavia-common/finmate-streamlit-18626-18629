@@ -4,8 +4,11 @@ from reportlab.lib.units import inch
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
+import os
 
-REPORTS_DIR = Path("reports")
+# Ensure reports are stored under the app directory so paths are consistent
+BASE_DIR = Path(os.path.dirname(os.path.dirname(__file__))).resolve()
+REPORTS_DIR = BASE_DIR / "reports"
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # PUBLIC_INTERFACE

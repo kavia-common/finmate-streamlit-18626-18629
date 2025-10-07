@@ -1,0 +1,16 @@
+[server]
+# Bind to all interfaces and port 3000 for preview environments
+address = "0.0.0.0"
+port = 3000
+headless = true
+
+# Optional: enable XSRF protection and file watcher default
+enableCORS = false
+enableXsrfProtection = true
+fileWatcherType = "auto"
+
+[browser]
+# In container environments, use root path
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 3000
