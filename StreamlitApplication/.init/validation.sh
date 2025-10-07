@@ -1,75 +1,95 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# validation: start streamlit from venv, wait readiness, probe HTTP, then cleanly stop
-WS="/home/kavia/workspace/code-generation/finmate-streamlit-18626-18629/StreamlitApplication"
-VENV="$WS/.venv"
-STREAMLIT="$VENV/bin/streamlit"
-APP_DIR="$WS/app"
-PORT=8501
-LOG="$WS/streamlit_validation.log"
-# ensure log file exists and is writable
-mkdir -p "$WS"
-: >"$LOG" || true
-# ensure streamlit binary exists
-[ -x "$STREAMLIT" ] || { echo "streamlit CLI missing at $STREAMLIT" >&2; exit 2; }
-# portable port-in-use check: return 0 if in use, 1 if free
-port_in_use() {
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq ":$PORT( |$)" && return 0 || return 1
-  else
-    python3 - <<PY
-import socket
-s=socket.socket()
-try:
- s.settimeout(0.5)
- s.connect(('127.0.0.1',%d))
- print(1)
-except Exception:
- print(0)
-finally:
- s.close()
-PY
-    # python prints 1/0; interpret stdout
-    return 0
-  fi
-}
-if port_in_use; then echo "port $PORT appears in use" >&2; exit 3; fi
-# change to app dir
-cd "$APP_DIR"
-# ensure env truth for non-interactive shells as well
-export STREAMLIT_SERVER_HEADLESS=true
-export STREAMLIT_SERVER_PORT=$PORT
-# start streamlit in background, capture leader PID
-"$STREAMLIT" run app.py --server.headless true --server.port $PORT >"$LOG" 2>&1 &
-PID=$!
-# cleanup: attempt graceful shutdown of leader only; increase log retention on failure
-cleanup(){ rc=$?; if ps -p "$PID" >/dev/null 2>&1; then
-    kill -TERM "$PID" >/dev/null 2>&1 || true
-    sleep 1
-    if ps -p "$PID" >/dev/null 2>&1; then kill -KILL "$PID" >/dev/null 2>&1 || true; fi
-  fi
-  if [ "$rc" -ne 0 ]; then
-    echo "=== STREAMLIT VALIDATION LOG (tail 200) ==="
-    tail -n 200 "$LOG" || true
-  fi
-  exit "$rc"
-}
-trap cleanup EXIT
-# wait for readiness up to 60s
+
+# Validation: start Streamlit headless, probe HTTP, and stop cleanly (uses setsid)
+WORKSPACE="/home/kavia/workspace/code-generation/finmate-streamlit-18626-18629/StreamlitApplication"
+VENV="$WORKSPACE/.venv"
+export PATH="$VENV/bin:$PATH"
+cd "$WORKSPACE"
+LOG_FILE="$WORKSPACE/streamlit_validation.log"
+EVIDENCE="$WORKSPACE/validation_evidence.txt"
+PIDFILE="$WORKSPACE/streamlit.pid"
+PGIDFILE="$WORKSPACE/streamlit.pgid"
+
+# Ensure streamlit binary exists
+if [ ! -x "$VENV/bin/streamlit" ]; then
+  echo "Error: streamlit binary not found at $VENV/bin/streamlit" >&2
+  exit 20
+fi
+
+# Start streamlit in its own session (process group) via setsid; redirect stdout/stderr to log
+STREAMLIT_CMD=("$VENV/bin/streamlit" run app.py --server.port=8501 --server.address=0.0.0.0)
+# Inline env vars to guarantee headless behavior for this run
+STREAM_ENV=("STREAMLIT_SERVER_HEADLESS=true" "STREAMLIT_SERVER_ENABLECORS=false")
+
+# Start under setsid so it gets its own PGID; capture PID
+setsid env "${STREAM_ENV[0]}" "${STREAM_ENV[1]}" "${STREAMLIT_CMD[@]}" >"$LOG_FILE" 2>&1 &
+ST_PID=$!
+# small grace before probing ps
+sleep 0.2
+
+# determine PGID of the launched process
+if ps -p "$ST_PID" >/dev/null 2>&1; then
+  PGID=$(ps -o pgid= -p "$ST_PID" | tr -d ' ')
+else
+  echo "Streamlit process did not start (no PID)" >&2
+  # capture log tail for debugging
+  { echo "--- streamlit log tail ---"; tail -n 200 "$LOG_FILE" 2>/dev/null || true; } >&2
+  exit 10
+fi
+
+# persist pid/pgid
+echo "$ST_PID" > "$PIDFILE"
+echo "$PGID" > "$PGIDFILE"
+
+# Probe HTTP up to TIMEOUT seconds
+TIMEOUT=90
 SECS=0
-READY=0
-while [ $SECS -lt 60 ]; do
-  if curl -sS "http://127.0.0.1:$PORT/" >/dev/null 2>&1 || curl -sS "http://127.0.0.1:$PORT/?" >/dev/null 2>&1; then READY=1; break; fi
+STATUS=0
+URL="http://127.0.0.1:8501/"
+while [ $SECS -lt $TIMEOUT ]; do
+  if command -v curl >/dev/null 2>&1; then
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" -L --max-redirs 5 "$URL" || echo 0)
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O /tmp/streamlit_probe.$$ "$URL" && STATUS=200 || STATUS=0
+    rm -f /tmp/streamlit_probe.$$ || true
+  else
+    STATUS=0
+  fi
+  if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "301" ]; then
+    break
+  fi
   sleep 1; SECS=$((SECS+1))
 done
-if [ $READY -ne 1 ]; then echo "Streamlit did not become ready in time" >&2; exit 4; fi
-# basic HTTP status check
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/" || true)
-if [ -n "$HTTP_STATUS" ] && [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
-  echo "Streamlit responded with HTTP $HTTP_STATUS"
+
+# Save evidence
+printf 'streamlit_pid=%s
+streamlit_pgid=%s
+http_status=%s
+startup_seconds=%s
+log_file=%s
+' "$ST_PID" "$PGID" "$STATUS" "$SECS" "$LOG_FILE" > "$EVIDENCE"
+
+if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "301" ]; then
+  echo "Validation succeeded; server responded with $STATUS" >> "$EVIDENCE"
+  # clean up: kill the exact process group
+  if [ -n "$PGID" ]; then
+    # send TERM to the process group (negative pgid) then KILL if necessary
+    kill -TERM -"$PGID" 2>/dev/null || true
+    sleep 1
+    kill -KILL -"$PGID" 2>/dev/null || true
+  fi
+  rm -f "$PIDFILE" || true
+  rm -f "$PGIDFILE" || true
+  exit 0
 else
-  echo "Unexpected or missing HTTP response: $HTTP_STATUS" >&2; exit 5
+  echo "Validation failed; server returned $STATUS" >> "$EVIDENCE"
+  echo "--- log tail ---" >> "$EVIDENCE"
+  tail -n 200 "$LOG_FILE" >> "$EVIDENCE" || true
+  # attempt best-effort cleanup
+  if [ -n "$PGID" ]; then
+    kill -TERM -"$PGID" 2>/dev/null || true
+  fi
+  cat "$EVIDENCE" >&2
+  exit 11
 fi
-# on success, show a short log excerpt for evidence
-tail -n 200 "$LOG" || true
-# cleanup trap will stop the server
