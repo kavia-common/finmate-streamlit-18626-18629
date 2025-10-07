@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Step: testing - create lightweight pytest tests and run them with junit output
 WS="/home/kavia/workspace/code-generation/finmate-streamlit-18626-18629/StreamlitApplication"
+cd "$WS"
 VENV="$WS/.venv"
-PYTEST_BIN="$VENV/bin/pytest"
-TEST_DIR="$WS/tests"
-mkdir -p "$TEST_DIR"
-# Fail fast if pytest binary missing
-if [ ! -x "$PYTEST_BIN" ]; then
-  echo "ERROR: pytest binary not found at $PYTEST_BIN" >&2
+PYBIN="$VENV/bin/python"
+PYTEST_VER="7.4.0"
+TESTFILE="$WS/.ci_test_streamlit_env.py"
+LOG="$WS/pytest_install.log"
+# ensure venv python exists
+if [ ! -x "$PYBIN" ]; then
+  echo "Error: venv python not found at $PYBIN" >&2
   exit 2
 fi
-# test 1: syntax check (compile-only, no imports executed)
-cat > "$TEST_DIR/test_app_syntax.py" <<'PY'
-import py_compile
-from pathlib import Path
-p = Path(__file__).resolve().parents[1] / 'app' / 'app.py'
-assert p.exists(), f"app.py not found at {p}"
-py_compile.compile(str(p), doraise=True)
+# install pinned pytest (non-interactive, no cache)
+"$PYBIN" -m pip install --no-cache-dir --disable-pip-version-check pytest=="$PYTEST_VER" > "$LOG" 2>&1 || (tail -n 200 "$LOG" >&2; exit 8)
+# create namespaced test file (idempotent overwrite)
+cat > "$TESTFILE" <<'PY'
+import importlib
+import pytest
+# fail if streamlit cannot be imported
+try:
+    importlib.import_module('streamlit')
+except Exception as e:
+    pytest.fail(f"streamlit import failed: {e}")
+# optional libs: report their absence but don't fail
+for pkg in ('pandas', 'reportlab', 'fpdf'):
+    try:
+        importlib.import_module(pkg)
+    except Exception:
+        print(f"OPTIONAL_MISSING: {pkg}")
 PY
-# test 2: AST inspection to assert create_ui exists without importing streamlit
-cat > "$TEST_DIR/test_app_api.py" <<'PY'
-import ast
-from pathlib import Path
-p = Path(__file__).resolve().parents[1] / 'app' / 'app.py'
-src = p.read_text()
-mod = ast.parse(src)
-fnames = [n.name for n in mod.body if isinstance(n, ast.FunctionDef)]
-assert 'create_ui' in fnames, 'create_ui function not found in app.py'
-PY
-# Run pytest and produce junit xml for CI evidence
-# -q for concise output, exit non-zero if tests fail
-"$PYTEST_BIN" -q "$TEST_DIR" --junitxml="$WS/tests/junit-results.xml"
+# run pytest on the single file
+"$PYBIN" -m pytest -q "$TESTFILE"

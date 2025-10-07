@@ -1,45 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 WS="/home/kavia/workspace/code-generation/finmate-streamlit-18626-18629/StreamlitApplication"
-APP_DIR="$WS/app"
-DATA_DIR="$APP_DIR/data"
-mkdir -p "$DATA_DIR"
-# Minimal import-safe app.py with lazy imports
-cat > "$APP_DIR/app.py" <<'PY'
-from io import BytesIO
-
-def create_ui():
-    try:
-        import streamlit as st
-    except Exception as e:
-        raise ImportError('streamlit not available: ' + str(e))
-    try:
-        from reportlab.pdfgen import canvas
-    except Exception as e:
-        raise ImportError('reportlab not available: ' + str(e))
-    st.title('Minimal Streamlit App')
-    if st.button('Show sample data'):
-        st.write({'hello': 'world'})
-    if st.button('Generate PDF'):
-        buffer = BytesIO()
-        c = canvas.Canvas(buffer)
-        c.drawString(100, 750, 'Sample PDF from ReportLab')
-        c.showPage(); c.save(); buffer.seek(0)
-        st.download_button('Download PDF', buffer, file_name='sample.pdf', mime='application/pdf')
-
-if __name__ == '__main__':
-    create_ui()
+cd "$WS"
+# look for common entry filenames only
+candidates=("app.py" "main.py" "streamlit_app.py")
+found=""
+for f in "${candidates[@]}"; do [ -f "$WS/$f" ] && found="$f" && break || true; done
+# create placeholder only if none found and workspace writable
+if [ -z "$found" ]; then
+  if touch "$WS/.scaffold_write_test" >/dev/null 2>&1; then
+    rm -f "$WS/.scaffold_write_test"
+    cat > "$WS/app.py" <<'PY'
+import streamlit as st
+st.title('Placeholder App')
+st.write('Replace with project app .py files mounted into the container')
 PY
-# Conservative pinned requirements to avoid unbounded upgrades; rely on requirements-lock.txt for exact versions
-cat > "$APP_DIR/requirements.txt" <<'REQ'
-streamlit>=1.30.0,<2.0
-reportlab>=4.0.0,<5.0
-pytest>=7.0.0,<8.0
-REQ
-# sample data
-cat > "$DATA_DIR/sample.json" <<'JS'
-{"sample": true}
-JS
-# ensure ownership/permissions
-sudo chown -R "$(id -u):$(id -g)" "$APP_DIR" || true
-sudo chmod -R u+rwX "$APP_DIR" || true
+    found="app.py"
+  else
+    echo "WARN: no entrypoint found and workspace not writable; skipping placeholder creation" >&2
+  fi
+fi
+REQ="$WS/requirements.txt"
+if [ -f "$REQ" ]; then
+  if ! grep -E '^[[:space:]]*streamlit==[0-9]+\.[0-9]+(\.[0-9]+)?' "$REQ" >/dev/null 2>&1; then
+    if [ "${STREAMLIT_AUTO_PIN-}" = "yes" ] && [ -n "${STREAMLIT_VERSION-}" ]; then
+      # append pinned streamlit
+      printf "\nstreamlit==%s\n" "$STREAMLIT_VERSION" >> "$REQ"
+    else
+      echo "ERROR: $REQ exists but does not contain pinned streamlit==X.Y.Z. Set STREAMLIT_AUTO_PIN=yes and STREAMLIT_VERSION to auto-insert or update $REQ manually." >&2
+      exit 6
+    fi
+  fi
+else
+  if [ -z "${STREAMLIT_VERSION-}" ]; then
+    echo "ERROR: no requirements.txt and STREAMLIT_VERSION not provided. Set STREAMLIT_VERSION to create requirements.txt." >&2
+    exit 7
+  fi
+  printf "streamlit==%s\n# add pandas, reportlab or fpdf if required by the app\n" "$STREAMLIT_VERSION" > "$REQ"
+fi
+exit 0
